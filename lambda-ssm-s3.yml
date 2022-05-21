@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Lambda function for Retreiving value from Parameter Store and uploading that to S3.
+Resources:
+  LambdaFunctionForSSMandS3:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: nodejs16.x
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Handler: !Join [".", ["index", main]]
+      FunctionName: DXCLambdaFunctionSample
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          const ssm = new AWS.SSM();
+          const s3 = new AWS.S3();
+
+          const GetSSMValue = async() => {
+              return await new Promise((resolve,reject) => {
+                  var params = {
+                    Name: 'UserName'   // created this 'UserName' Parameter manually in Parameter Store [STEP-1]
+                  };
+                  ssm.getParameter(params, function(err, data) {    // using 'getParameter method of SSM API'
+                    if (err) reject(err, err.stack); // an error occurred
+                    else     resolve(data);           // successful response
+                  });
+              })
+          }
+
+          const UploadDataToS3 = async(body) => {
+              return await new Promise((resolve,reject) => {
+                  var params = {
+                      Body: body,
+                      Bucket: "parameterstorevalue",
+                      Key: 'SecretValue764.txt'
+                  };
+                  s3.putObject(params, function(err, data) {  // using 'putObject' method of S3 API'
+                    if (err) reject(err, err.stack); // an error occurred
+                    else     resolve(data);    
+                  })
+              })    
+          }
+
+          exports.main = async () => {
+              const SSMValue = await GetSSMValue();
+              const {Parameter} = SSMValue;
+              const {Name, Value} = Parameter;
+              const storeValue = `Name is ${Name} and Value is ${Value}`
+              console.log(storeValue) // Retrieving the SSM value for aws-sdk SSM module
+              
+              const UploadData = await UploadDataToS3(storeValue);
+              console.log("UPLOAD DATA TO S3 ----> ", UploadData)  // creating a text file (secretValue.txt)) & uploading it with the SSM parameter store value
+          }
+
+      Description: Invoke a Lambda function and upload a file in S3 consisting of Parameter store value.
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: LambdaSSMandS3Role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMFullAccess
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+      Policies:
+        - PolicyName: LambdaSSMandS3Policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "cloudformation:DescribeStacks"
+                  - "cloudformation:ListStackResources"
+                  - "cloudformation:List*"
+                  - "cloudwatch:ListMetrics"
+                  - "cloudwatch:GetMetricData"
+                  - "lambda:CreateFunction"
+                  - "lambda:Get*"
+                  - "lambda:List*"
+                  - "lambda:UpdateFunctionConfiguration"
+                  - "lambda:UpdateFunctionCode"
+                  - "lambda:InvokeFunction"
+                  - "lambda:DeleteFunction"
+                  - "logs:DescribeLogGroups"
+                  - "logs:DescribeLogStreams"
+                  - "logs:GetLogEvents"
+                  - "logs:FilterLogEvents"
+                  - "tag:GetResources"
+                Resource: "*"
+
+              - Effect: Allow
+                Action:
+                  - "iam:PassRole"
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    "iam:PassedToService": "lambda.amazonaws.com"
